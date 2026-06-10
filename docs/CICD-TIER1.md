@@ -36,11 +36,16 @@ CI lint/typecheck/test is provided by the inherited `tests.yml` + `lint.yml`
   allowlists them → `no leaks found`. **0 real secrets.**
 - **SAST / change review:** the audit's own changes passed `/security-review` (no findings)
   and a 5-agent adversarial red-team.
-- **Dependencies:** `uv.lock` carries 3 known upstream CVEs (aiohttp 3.13.3 → 3.14.0;
-  pygments 2.19.2 → 2.20.0; pynacl 1.5.0 → 1.6.2) plus build-time setuptools. These are
-  **pre-existing upstream pins, not introduced here.** They are surfaced by `osv-scanner.yml`
-  and remediated by **Dependabot** as tested, incremental PRs — the correct path vs. an
-  untested manual bump of core networking/crypto deps. Track them in the Security tab.
+- **Dependencies:** `uv.lock` carries 3 known upstream CVEs — aiohttp 3.13.3
+  (only pinned in OPTIONAL extras: messaging/slack/sms; LOW/MODERATE), pygments 2.19.2
+  (LOW, local ReDoS), pynacl 1.5.0 (MODERATE, local/high-complexity). **Pre-existing
+  upstream pins, not introduced here.** *Detection:* Trivy scans the built image's
+  installed deps in `image-build.yml`. *Remediation:* the repo's **Dependabot security
+  updates** (CVE-only; enabled via repo settings) open pin-bump PRs when a pinned version
+  becomes known-bad — which matches the repo's deliberate exact-pinning strategy
+  (`.github/dependabot.yml`); scheduled version bumps are intentionally OFF. Moving these
+  pins is a deliberate, reviewed, tested change — not an unverified manual bump of core
+  networking/crypto deps inside this audit.
 
 ## Adding deployment later
 
@@ -51,10 +56,13 @@ reviewers, and tag images by **immutable git SHA** (never `:latest`).
 
 ## Inherited upstream workflows
 
-The four that publish/deploy to NousResearch infra — `upload_to_pypi.yml`,
-`deploy-site.yml`, `skills-index.yml`, `skills-index-freshness.yml` — have been
-**removed** (wrong target for a standalone repo). `docker-publish.yml` is repo-gated
-to `NousResearch/hermes-agent`, so it no-ops here and is left in place. The remaining
+**Removed** (wrong target / would go red on a standalone fork): `upload_to_pypi.yml`,
+`deploy-site.yml`, `skills-index.yml`, `skills-index-freshness.yml` (publish/deploy to
+NousResearch infra); `nix.yml` + `nix-lockfile-fix.yml` (upstream Nix/cachix packaging,
+needs a cachix cache + a GitHub App token); `osv-scanner.yml` (its SARIF upload needs
+code scanning/GHAS — dependency vulns are covered by Trivy in `image-build.yml` + the
+repo's Dependabot security updates instead). `docker-publish.yml` is repo-gated to
+`NousResearch/hermes-agent`, so it no-ops here and is left in place. The remaining
 check-only workflows (`contributor-check`, `history-check`, `docs-site-checks`) are
 non-blocking (not in the required-status-checks set); adapt or disable them if their
 upstream-specific assertions (AUTHOR_MAP, commit-history conventions) are unwanted:

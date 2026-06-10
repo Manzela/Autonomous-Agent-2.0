@@ -1,33 +1,31 @@
 # gitleaks config for Autonomous-Agent-2.0 (standalone Hermes Agent).
-# Extends the default ruleset and allowlists the categories verified (2026-06) to
-# be FALSE POSITIVES — 0 real secrets exist in source:
-#   * public OAuth client IDs (device/PKCE flows; public by design)
-#   * Google installed-app "client secret" pieces (documented non-confidential)
-#   * the private-key REGEX used by agent/redact.py to scrub keys
-#   * test fixtures and documentation examples
-# Allowlisting is targeted (line/path regex), not whole-repo, so a NEW real secret
-# is still caught.
+# Extends the default ruleset. Allowlists are PATH-SCOPED to the specific files
+# and directories verified (2026-06) to contain only false positives — NOT global
+# value/line regexes, so a real secret in any other file is still caught.
+#   * tests/, evals/, docs/, *.md, *.example, locales/, website/ — fixtures + docs
+#   * agent/redact.py — the private-key/secret REGEX PATTERNS used to scrub output
+#   * agent/google_oauth.py, agent/anthropic_adapter.py, hermes_cli/auth.py,
+#     hermes_cli/copilot_auth.py — PUBLIC OAuth client IDs / documented non-confidential
+#   * optional-skills/.../telephony.py — a public default voice ID
 title = "Autonomous-Agent-2.0 gitleaks"
 
 [extend]
 useDefault = true
 
 [allowlist]
-description = "Verified false positives (public OAuth IDs, redaction patterns, fixtures, docs)."
+description = "Path-scoped false positives (verified). NOT global — real secrets elsewhere are still caught."
 paths = [
   '''(^|/)tests?/''',
+  '''(^|/)evals?/''',
+  '''(^|/)docs/''',
   '''\.md$''',
   '''\.example$''',
-  '''(^|/)docs/''',
   '''(^|/)locales/''',
   '''(^|/)website/''',
-]
-regexTarget = "line"
-regexes = [
-  '''OAUTH_CLIENT_ID\s*=''',
-  '''_PUBLIC_CLIENT_ID_''',
-  '''_PUBLIC_CLIENT_SECRET_SUFFIX''',
-  '''_DEFAULT_CLIENT_ID''',
-  '''PRIVATE KEY-----''',
-  '''VAPI_DEFAULT_VOICE_ID''',
+  '''(^|/)agent/redact\.py$''',
+  '''(^|/)agent/google_oauth\.py$''',
+  '''(^|/)agent/anthropic_adapter\.py$''',
+  '''(^|/)hermes_cli/auth\.py$''',
+  '''(^|/)hermes_cli/copilot_auth\.py$''',
+  '''(^|/)optional-skills/productivity/telephony/scripts/telephony\.py$''',
 ]
