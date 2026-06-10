@@ -10,12 +10,20 @@ PYTHONPATH=. python -m pytest -q evals/
 
 ## Current evals
 
-- **`test_acceptance_redaction.py`** — the output secret-scrubber
-  (`agent/redact.py`) must redact real-shaped secrets (auth headers, env
-  assignments, JSON secret fields, DB connection passwords, Telegram bot tokens,
-  private-key blocks) before they can be persisted or sent, while leaving benign
-  text intact and being idempotent. This is the product's "output secret
-  scrubbing" safety control.
+Each asserts a product-level safety control the README promises:
+
+- **`test_acceptance_redaction.py`** — **output secret scrubbing** (`agent/redact.py`):
+  real-shaped secrets (auth headers, env assignments, JSON secret fields, DB
+  passwords, Telegram bot tokens, private-key blocks) are redacted before persist/send;
+  benign text preserved; idempotent.
+- **`test_acceptance_egress_ssrf.py`** — **network egress allowlist** (`tools/url_safety.py`):
+  cloud metadata/credential endpoints (169.254.169.254, metadata.google.internal, ECS,
+  Alibaba) are unconditionally blocked; private/loopback/link-local addresses and
+  non-HTTP schemes (file/ftp/gopher) are refused — SSRF / credential-exfil protection.
+- **`test_acceptance_memory_integrity.py`** — **memory/skill integrity** (P2-18,
+  `tools/skill_audit_log.py`): background-review-fork skill writes are attributed as
+  `background_review` (the injection-persistence vector is traceable), blocked attempts
+  are still logged, read-only actions are not, and auditing never breaks a write.
 
 ## Adding evals
 
