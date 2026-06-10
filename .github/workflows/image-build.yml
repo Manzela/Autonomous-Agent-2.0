@@ -1,0 +1,61 @@
+# Standalone image build + scan gate (no registry push, no deploy — this repo is
+# self-contained). Verifies the Dockerfile builds, scans the image for HIGH/CRITICAL
+# vulns, and produces an SBOM artifact. Add a registry/push + deploy step later when
+# a target exists.
+name: Image build & scan
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+    paths: [Dockerfile, ".dockerignore", "docker/**", "pyproject.toml", "uv.lock"]
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: image-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-scan:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write # upload Trivy SARIF
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - uses: docker/setup-buildx-action@988b5a0280414f521da01fcc63a27aeeb4b104db # v3.6.1
+
+      - name: Build image (load locally, do not push)
+        uses: docker/build-push-action@5cd11c3a4ced054e52742c5fd54dca954e0edd85 # v6.7.0
+        with:
+          context: .
+          load: true
+          push: false
+          tags: hermes-agent:ci-${{ github.sha }}
+          build-args: HERMES_GIT_SHA=${{ github.sha }}
+
+      - name: Trivy scan (report HIGH/CRITICAL; non-blocking until baselined)
+        uses: aquasecurity/trivy-action@915b19bbe73b92a6cf82a1bc12b087c9a19a5fe2 # 0.28.0
+        with:
+          image-ref: hermes-agent:ci-${{ github.sha }}
+          format: sarif
+          output: trivy.sarif
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+
+      - name: Upload Trivy SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@4e828ff8d448a8a6e532957b1811f387a63867e8 # v3.30.5
+        with:
+          sarif_file: trivy.sarif
+
+      - name: Generate SBOM (SPDX)
+        uses: anchore/sbom-action@61119d458adab75f756bc0b9e4bde25725f86a7a # v0.17.2
+        with:
+          image: hermes-agent:ci-${{ github.sha }}
+          format: spdx-json
+          artifact-name: sbom-${{ github.sha }}.spdx.json
