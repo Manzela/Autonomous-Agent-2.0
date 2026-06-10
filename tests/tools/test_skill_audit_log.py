@@ -27,6 +27,19 @@ def test_appends_attributed_records(tmp_path, monkeypatch):
     assert e1["detail"] == "blocked by scan"
 
 
+def test_rotates_when_oversized(tmp_path, monkeypatch):
+    monkeypatch.setattr(sal, "get_hermes_home", lambda: tmp_path)
+    monkeypatch.setattr(sal, "_MAX_BYTES", 200)  # tiny cap to force a rotation
+    for i in range(60):
+        sal.record_skill_mutation("patch", f"skill-{i}", origin="foreground", success=True)
+    log = tmp_path / "skill_audit.jsonl"
+    rotated = tmp_path / "skill_audit.jsonl.1"
+    assert log.exists() and rotated.exists(), "oversized log must roll to .jsonl.1"
+    # The live log stays bounded and holds the most recent entries.
+    assert log.stat().st_size < 1000
+    assert "skill-59" in log.read_text(encoding="utf-8")
+
+
 def test_ignores_non_mutating_actions(tmp_path, monkeypatch):
     monkeypatch.setattr(sal, "get_hermes_home", lambda: tmp_path)
     sal.record_skill_mutation("view", "x", origin="foreground", success=True)

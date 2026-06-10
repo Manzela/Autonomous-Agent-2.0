@@ -31,6 +31,10 @@ logger = logging.getLogger(__name__)
 
 _AUDIT_FILENAME = "skill_audit.jsonl"
 
+# Size-bound the log so it can't grow without limit (one rotation kept). Skill
+# mutations are low-frequency, so 1 MiB holds a long history.
+_MAX_BYTES = 1024 * 1024
+
 _MUTATING_ACTIONS = frozenset(
     {"create", "edit", "patch", "delete", "write_file", "remove_file"}
 )
@@ -38,6 +42,15 @@ _MUTATING_ACTIONS = frozenset(
 
 def audit_log_path() -> Path:
     return get_hermes_home() / _AUDIT_FILENAME
+
+
+def _rotate_if_needed(path: Path) -> None:
+    """Roll the log to ``<name>.1`` once it exceeds ``_MAX_BYTES``. Best-effort."""
+    try:
+        if path.exists() and path.stat().st_size >= _MAX_BYTES:
+            path.replace(path.with_suffix(path.suffix + ".1"))
+    except OSError:
+        pass
 
 
 def record_skill_mutation(
@@ -70,6 +83,7 @@ def record_skill_mutation(
             entry["detail"] = str(detail)[:500]
         path = audit_log_path()
         path.parent.mkdir(parents=True, exist_ok=True)
+        _rotate_if_needed(path)
         with open(path, "a", encoding="utf-8") as fh:
             fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
     except Exception:
