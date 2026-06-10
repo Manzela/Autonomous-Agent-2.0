@@ -29,6 +29,19 @@ CI lint/typecheck/test is provided by the inherited `tests.yml` + `lint.yml`
    `gh api repos/Manzela/Autonomous-Agent-2.0/commits/main/check-runs --jq '.check_runs[].name'`
    then re-run `repo-bootstrap.sh` (or PATCH the protection) with those names.
 
+## Security posture (verified 2026-06)
+
+- **Secret scan:** clean. A pre-push gitleaks scan found 768 hits, all verified false
+  positives (public OAuth client IDs, the redaction regex, fixtures, docs). `.gitleaks.toml`
+  allowlists them → `no leaks found`. **0 real secrets.**
+- **SAST / change review:** the audit's own changes passed `/security-review` (no findings)
+  and a 5-agent adversarial red-team.
+- **Dependencies:** `uv.lock` carries 3 known upstream CVEs (aiohttp 3.13.3 → 3.14.0;
+  pygments 2.19.2 → 2.20.0; pynacl 1.5.0 → 1.6.2) plus build-time setuptools. These are
+  **pre-existing upstream pins, not introduced here.** They are surfaced by `osv-scanner.yml`
+  and remediated by **Dependabot** as tested, incremental PRs — the correct path vs. an
+  untested manual bump of core networking/crypto deps. Track them in the Security tab.
+
 ## Adding deployment later
 
 When a deploy target exists, add a `cd.yml` that builds + pushes the image to your
