@@ -115,7 +115,10 @@ jobs:
           gcloud compute ssh "${{ vars.STAGING_VM }}" --zone "${{ vars.GCP_ZONE }}" \
             --project "${{ vars.GCP_PROJECT }}" --tunnel-through-iap --command "
               set -e
-              echo 'IMAGE_TAG=${{ needs.build.outputs.tag }}' | sudo tee /etc/hermes/image-tag.env
+              # IMAGE_TAG source-of-truth: the systemd unit + watchdog both read
+              # /opt/hermes/bootstrap/image_tag.env. systemctl restart triggers
+              # ExecStartPre 'docker compose pull' + 'up -d'.
+              echo 'IMAGE_TAG=${{ needs.build.outputs.tag }}' | sudo tee /opt/hermes/bootstrap/image_tag.env
               sudo systemctl restart docker-compose-hermes.service
             "
       - name: Smoke-check staging health
@@ -149,6 +152,9 @@ jobs:
           gcloud compute ssh "${{ vars.PROD_VM }}" --zone "${{ vars.GCP_ZONE }}" \
             --project "${{ vars.GCP_PROJECT }}" --tunnel-through-iap --command "
               set -e
-              echo 'IMAGE_TAG=${{ needs.build.outputs.tag }}' | sudo tee /etc/hermes/image-tag.env
+              # IMAGE_TAG source-of-truth: the systemd unit + watchdog both read
+              # /opt/hermes/bootstrap/image_tag.env. systemctl restart triggers
+              # ExecStartPre 'docker compose pull' + 'up -d'.
+              echo 'IMAGE_TAG=${{ needs.build.outputs.tag }}' | sudo tee /opt/hermes/bootstrap/image_tag.env
               sudo systemctl restart docker-compose-hermes.service
             "

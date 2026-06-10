@@ -19,28 +19,32 @@ The CI gate (lint/typecheck/test) is provided by the inherited `tests.yml` + `li
 
 ## One-time setup (after the first push)
 
-1. `bash scripts/repo-bootstrap.sh` — branch protection on `main`, `staging`/`production`
-   environments (production = required reviewers + 5 min wait), secret-scanning +
-   push-protection (needs GitHub Advanced Security on a private repo), Dependabot.
-2. **Workload Identity Federation** (no SA keys) so GitHub Actions can reach GCP:
-   create a WIF pool+provider for `repo:Manzela/Autonomous-Agent-2.0`, a deploy SA with
-   `roles/artifactregistry.writer` + `roles/compute.instanceAdmin.v1` +
-   `roles/iam.serviceAccountTokenCreator`, bind the WIF principal to it.
-3. Set the Actions **variables** (see the reminder printed by `repo-bootstrap.sh`):
-   `GCP_PROJECT, GCP_ZONE, AR_REPO, STAGING_VM, PROD_VM, GCP_WIF_PROVIDER, GCP_DEPLOY_SA`.
+The GCP side is **already provisioned** (discovered during the audit): WIF pool
+`autonomousagent-github` / provider `autonomousagent-actions`, deploy SA
+`autonomousagent-github-ci@autonomous-agent-2026.iam.gserviceaccount.com` with
+`artifactregistry.writer` + `compute.instanceAdmin.v1` + `compute.osAdminLogin` +
+`iap.tunnelResourceAccessor`, and AR repo `autonomousagent-images`. So setup is just:
+
+1. `bash scripts/repo-bootstrap.sh` — branch protection on `main`; `staging`/`production`
+   environments (production = required reviewers + 5 min wait); secret-scanning +
+   push-protection (needs GitHub Advanced Security on a private repo) + Dependabot;
+   and it **sets all CD Actions variables to the real values** (project, zone, AR repo,
+   VM names, WIF provider, deploy SA).
+2. **One IAM binding** (the script prints the exact command; review + run): allow
+   `repo:Manzela/Autonomous-Agent-2.0` to impersonate the deploy SA via the existing
+   WIF pool (`roles/iam.workloadIdentityUser` on the principalSet for this repo).
+   Confirm the provider's attribute-condition permits this repository.
 
 ## Deploy model (matches the production VM)
 
 The VMs run a Docker-Compose stack that pins `IMAGE_TAG` and **refuses `:latest`**. CD
-writes the new short-SHA tag to `/etc/hermes/image-tag.env` and restarts
-`docker-compose-hermes.service` over **IAP-tunnelled SSH** — staging first (auto +
-health gate), production only on a `workflow_dispatch` with `deploy_production=true`
+writes the new short-SHA tag to **`/opt/hermes/bootstrap/image_tag.env`** (the exact file
+the `docker-compose-hermes.service` `EnvironmentFile` and the watchdog both read) and
+`systemctl restart docker-compose-hermes.service` — whose `ExecStartPre` runs
+`docker compose pull` then `up -d`. Over **IAP-tunnelled SSH**. Staging first (auto +
+health gate); production only on a `workflow_dispatch` with `deploy_production=true`
 through the **required-reviewer** `production` environment. Rollback = re-run with a
 previous SHA tag.
-
-> The exact VM roll step (`/etc/hermes/image-tag.env` + `systemctl restart`) assumes the
-> compose `IMAGE_TAG` is sourced from that env file. If your bootstrap sources it
-> differently, adjust the `--command` block in `cd-image-deploy.yml` accordingly.
 
 ## Inherited workflows to disable on this fork
 
