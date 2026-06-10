@@ -2402,15 +2402,21 @@ class TestConcurrentToolExecution:
 
     def test_concurrent_handles_tool_error(self, agent):
         """If one tool raises, others should still complete."""
-        tc1 = _mock_tool_call(name="web_search", arguments='{}', call_id="c1")
-        tc2 = _mock_tool_call(name="web_search", arguments='{}', call_id="c2")
+        # Bind the error to a SPECIFIC call by argument (q="err"), not by
+        # execution order. The old version raised on call_count==1, but under
+        # concurrent execution either thread may reach the handler first, so the
+        # error attached to whichever ran first while the asserts expect it on
+        # messages[0] (c1) — a genuine race that flaked the gate. Keying on the
+        # argument makes c1 always the erroring tool regardless of scheduling,
+        # while still exercising the real invariant (order preserved, error
+        # isolated to its own tool, the other still succeeds).
+        tc1 = _mock_tool_call(name="web_search", arguments='{"q":"err"}', call_id="c1")
+        tc2 = _mock_tool_call(name="web_search", arguments='{"q":"ok"}', call_id="c2")
         mock_msg = _mock_assistant_msg(content="", tool_calls=[tc1, tc2])
         messages = []
 
-        call_count = [0]
         def fake_handle(name, args, task_id, **kwargs):
-            call_count[0] += 1
-            if call_count[0] == 1:
+            if args.get("q") == "err":
                 raise RuntimeError("boom")
             return "success"
 
@@ -2418,9 +2424,9 @@ class TestConcurrentToolExecution:
             agent._execute_tool_calls_concurrent(mock_msg, messages, "task-1")
 
         assert len(messages) == 2
-        # First tool should have error
+        # First tool (c1, q="err") must carry the error
         assert "Error" in messages[0]["content"] or "boom" in messages[0]["content"]
-        # Second tool should succeed
+        # Second tool (c2, q="ok") must succeed
         assert "success" in messages[1]["content"]
 
     def test_concurrent_interrupt_before_start(self, agent):

@@ -725,6 +725,7 @@ def main() -> int:
     # terminal clean rather than interleaving N parallel pytest outputs).
     failures: List[Tuple[Path, str, Dict[str, int]]] = []
     file_times: List[Tuple[Path, float]] = []  # (file, subprocess_wall) for distribution
+    flaky_retried: List[Path] = []  # files that failed once then passed on a fresh retry
     started = time.monotonic()
     files_done = 0
     tests_done = 0
@@ -753,6 +754,20 @@ def main() -> int:
                     subproc_wall=0.0,
                 )
             return
+        # ── Transparent single retry for a failed file ──────────────────────
+        # The suite carries several inherently timing-sensitive threaded tests
+        # (concurrent tool execution, per-session compression locks, gateway
+        # races). A REAL failure fails again; a scheduling flake almost always
+        # clears in a fresh subprocess. Re-run a failed file ONCE and adopt the
+        # retry's result as canonical. Files that only pass on retry are recorded
+        # as flaky (printed in the summary) so the flakiness stays visible and
+        # can be driven out — this absorbs nondeterminism without hiding it.
+        was_retried = False
+        if rc != 0:
+            was_retried = True
+            fpath, rc, output, summary, subproc_wall = _run_one_file(
+                file, pytest_passthrough, repo_root, args.file_timeout
+            )
         with lock:
             files_done += 1
             tests_done += n_tests
@@ -762,6 +777,8 @@ def main() -> int:
             file_times.append((fpath, subproc_wall))
             if rc == 0:
                 pass_count += 1
+                if was_retried:
+                    flaky_retried.append(fpath)
             else:
                 fail_count += 1
                 failures.append((fpath, output, summary))
@@ -795,6 +812,10 @@ def main() -> int:
     print()
     pct = (tests_done / total_tests * 100) if total_tests else 0
     print(f"=== Summary: {len(files)} files, {tests_passed} tests passed, {tests_failed} failed ({pct:.0f}% complete) in {elapsed:.1f}s ({args.jobs} workers) ===")
+    if flaky_retried:
+        print(f"  ⚠ {len(flaky_retried)} file(s) FLAKY (failed once, passed on a fresh retry — NOT counted as failures):")
+        for f in flaky_retried:
+            print(f"      {_format_file(f, repo_root)}")
 
     # Save durations for future --slice runs. Each slice writes its own
     # partial test_durations.json; a CI merge step joins them later.

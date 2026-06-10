@@ -24,21 +24,35 @@ echo "== 3. Branch protection on main =="
 # Required checks use workflow JOB names. After the first CI run, confirm the exact
 # names with: gh api repos/$REPO/commits/main/check-runs --jq '.check_runs[].name'
 # and adjust the contexts below to match (a required check that never runs blocks merges).
+# Required contexts are limited to the checks that run on EVERY PR to main with
+# NO path filter (so a required check can never hang "expected" and wedge a merge):
+#   - CodeQL python + js  (codeql.yml: no paths)   — SAST gate
+#   - acceptance-evals    (eval-gate.yml: no paths) — safety-eval gate
+# Tests / Lint / Image-scan run as visible checks but are path-filtered, so they
+# are NOT hard-required here (requiring a path-skipped check blocks unrelated PRs).
+# To promote tests to a hard gate cleanly, add an always-run aggregate "gate" job
+# (needs: [test], if: always()) and require that single context instead.
+#
+# Reviews: required_approving_review_count is 0 on purpose. This is a solo-owned
+# repo — requiring >=1 approval with enforce_admins=true would make it impossible
+# for the owner to merge ANY PR (no second approver). PRs are still REQUIRED (no
+# direct pushes to main) and the full CI gate is enforced for everyone (admins
+# included). Bump to 1 + require_code_owner_reviews=true once collaborators exist.
 gh api -X PUT "repos/$REPO/branches/main/protection" --input - >/dev/null <<'JSON'
 {
   "required_status_checks": {
     "strict": true,
     "contexts": [
       "Analyze (python)",
-      "Analyze (javascript-typescript)"
+      "Analyze (javascript-typescript)",
+      "acceptance-evals"
     ]
   },
   "enforce_admins": true,
   "required_pull_request_reviews": {
-    "required_approving_review_count": 1,
-    "require_code_owner_reviews": true,
-    "dismiss_stale_reviews": true,
-    "require_last_push_approval": true
+    "required_approving_review_count": 0,
+    "require_code_owner_reviews": false,
+    "dismiss_stale_reviews": true
   },
   "required_linear_history": true,
   "allow_force_pushes": false,
