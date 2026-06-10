@@ -591,6 +591,38 @@ def test_render_run_script_resets_home_before_exec() -> None:
     assert "exec s6-setuidgid hermes hermes -p coder gateway run" in run_text
 
 
+def test_render_run_script_runs_gateway_at_info_verbosity() -> None:
+    # `-v` lifts the gateway's stderr handler from WARNING to INFO so cron
+    # fast-forward/skip notices, the [MEMORY] RSS series and restart banners
+    # reach Cloud Logging (the only sink Cloud Run captures). `-vv` (DEBUG) is
+    # deliberately not used.
+    default_run = S6ServiceManager._render_run_script("default", {})
+    coder_run = S6ServiceManager._render_run_script("coder", {})
+
+    assert "hermes gateway run -v" in default_run
+    assert "hermes -p coder gateway run -v" in coder_run
+    assert "gateway run -vv" not in default_run
+
+
+def test_render_log_run_probes_target_dir_not_proc_mounts() -> None:
+    # The log-dir network-filesystem fallback must probe the ACTUAL $log_dir
+    # (touch + chmod) rather than grepping /proc/mounts for "fuse" — the global
+    # grep matched ANY fuse mount anywhere in the container and wrongly diverted
+    # gateway logs to ephemeral /tmp even when $HERMES_HOME/logs was writable.
+    log_run = S6ServiceManager._render_log_run("default")
+
+    assert "/proc/mounts" not in log_run, (
+        "log/run must not grep /proc/mounts — probe the target dir's own filesystem"
+    )
+    # The functional probe (touch+chmod of the real dir) is retained, and the
+    # /tmp fallback is still available for genuinely unwritable mounts.
+    assert 'touch "$probe"' in log_run
+    assert 'chmod 600 "$probe"' in log_run
+    assert "/tmp/logs/gateways/default" in log_run
+    # s6-log still forwards line 1 (raw) to stdout -> Cloud Logging.
+    assert "s6-log 1 " in log_run
+
+
 def test_s6_register_rejects_invalid_profile_name(s6_scandir) -> None:
     mgr = S6ServiceManager(scandir=s6_scandir)
     with pytest.raises(ValueError):

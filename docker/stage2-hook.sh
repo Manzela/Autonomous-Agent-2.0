@@ -377,7 +377,7 @@ if [ ! -f "$HERMES_HOME/auth.json" ] && [ -n "${HERMES_AUTH_JSON_BOOTSTRAP:-}" ]
         chown hermes:hermes "$HERMES_HOME/auth.json" 2>/dev/null || true
         chmod 600 "$HERMES_HOME/auth.json" 2>/dev/null || true
     else
-        echo "[stage2] ERROR: HERMES_AUTH_JSON_BOOTSTRAP is not valid JSON; leaving auth.json unseeded"
+        echo "[stage2] ERROR: HERMES_AUTH_JSON_BOOTSTRAP is not valid JSON; leaving auth.json unseeded" >&2
         rm -f "$_auth_tmp" 2>/dev/null || true
     fi
 fi

@@ -132,3 +132,72 @@ def test_docker_config_migrate_skip_env_leaves_config_unchanged(tmp_path: Path) 
     assert "skipping config migration" in proc.stdout
     assert config_path.read_text(encoding="utf-8") == original
     assert not list(tmp_path.glob("*.bak-*"))
+
+
+# --- gcsfuse contract: config-schema backup must not depend on chmod ---------
+#
+# On a network-mounted HERMES_HOME (gcsfuse, some NFS/SMB) os.chmod raises
+# EPERM. The previous shutil.copy backup performed copymode() -> os.chmod and
+# aborted the whole migration every boot (the backup succeeded, the chmod
+# failed), so the config schema never advanced and a fresh .bak leaked on each
+# restart. These tests pin the corrected contract: backups use copyfile (no
+# metadata syscalls), a backup failure is tolerated, and accumulation is bounded.
+
+import importlib.util
+import shutil
+
+
+def _load_migrate_module():
+    spec = importlib.util.spec_from_file_location("_docker_config_migrate_under_test", SCRIPT)
+    assert spec and spec.loader
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _raise_eperm(*_args, **_kwargs):
+    raise OSError(1, "Operation not permitted")
+
+
+def test_backup_does_not_depend_on_chmod(tmp_path: Path, monkeypatch) -> None:
+    mod = _load_migrate_module()
+    src = tmp_path / "config.yaml"
+    src.write_text("model: gpt\n", encoding="utf-8")
+    # A filesystem that rejects every mode change (gcsfuse-like).
+    monkeypatch.setattr(os, "chmod", _raise_eperm)
+    monkeypatch.setattr(shutil, "copymode", _raise_eperm)
+
+    backups = mod._backup_existing([src])
+
+    assert len(backups) == 1
+    assert backups[0].exists()
+    assert backups[0].read_text(encoding="utf-8") == "model: gpt\n"
+
+
+def test_backup_failure_is_tolerated(tmp_path: Path, monkeypatch) -> None:
+    mod = _load_migrate_module()
+    src = tmp_path / "config.yaml"
+    src.write_text("model: gpt\n", encoding="utf-8")
+    # Even a hard copy failure (ENOSPC) must not raise out of _backup_existing —
+    # migration should proceed backup-less rather than abort every boot.
+    monkeypatch.setattr(mod.shutil, "copyfile", _raise_eperm)
+
+    backups = mod._backup_existing([src])  # must not raise
+
+    assert backups == []
+
+
+def test_backup_retention_keeps_newest_five(tmp_path: Path) -> None:
+    mod = _load_migrate_module()
+    src = tmp_path / "config.yaml"
+    src.write_text("model: gpt\n", encoding="utf-8")
+    # Seven pre-existing timestamped backups (lexicographically sortable).
+    for i in range(7):
+        (tmp_path / f"config.yaml.bak-2026010{i}T000000Z").write_text("old", encoding="utf-8")
+
+    mod._backup_existing([src])  # creates one more (now-stamped), prunes to 5
+
+    remaining = sorted(p.name for p in tmp_path.glob("config.yaml.bak-*"))
+    assert len(remaining) == mod._BACKUP_RETENTION == 5
+    # The newest (just-created) backup is retained; the oldest are pruned.
+    assert "config.yaml.bak-20260100T000000Z" not in remaining
