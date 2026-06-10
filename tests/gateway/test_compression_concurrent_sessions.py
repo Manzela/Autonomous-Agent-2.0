@@ -138,6 +138,28 @@ def test_concurrent_compressions_same_session_serialize(tmp_path: Path) -> None:
     ``test_compression_concurrent_fork.py`` but scoped to the two-agent /
     same-session shape most likely to occur in practice: the main-turn agent
     and its background-review fork both hitting the compression threshold.
+
+    Determinism
+    -----------
+    A bare ``thread.start()`` + ``sleep(0.25)`` inside the stubbed compressor
+    does NOT guarantee the two threads overlap at the lock.  On a loaded CI
+    runner thread A can acquire the lock, compress, rotate the session_id AND
+    release the lock before thread B is ever scheduled onto the acquisition
+    point.  B then acquires the (now-free) lock on the original session_id and
+    *also* compresses — yielding ``compressed_count == 2`` and the intermittent
+    "Expected exactly one agent to compress, got 2" failure.  The lock is
+    correct; the old test merely failed to force the overlap it asserts on.
+
+    We make the overlap deterministic by synchronising on the real seam both
+    threads must pass through: ``SessionDB.try_acquire_compression_lock``.  A
+    ``threading.Barrier(2)`` placed immediately AFTER each thread's *real*
+    acquisition attempt holds both threads until both have attempted to
+    acquire.  Because SQLite serialises the two INSERT-or-IGNORE writes, exactly
+    one attempt returns ``True`` (the winner, which has the lock row inserted)
+    and the other returns ``False`` (the loser sees it held) — the genuine
+    product outcome, unmodified.  The barrier only guarantees the loser has
+    provably reached acquisition *while the winner still holds the lock*,
+    closing the "B starts late" window without weakening any assertion below.
     """
     db = SessionDB(db_path=tmp_path / "state.db")
     shared_sid = "SHARED_SESSION_CONCURRENT"
@@ -145,6 +167,32 @@ def test_concurrent_compressions_same_session_serialize(tmp_path: Path) -> None:
 
     agent_a = _build_agent_with_db(db, shared_sid)
     agent_b = _build_agent_with_db(db, shared_sid)
+
+    # ── Force overlap at the lock-acquisition seam ──────────────────────────
+    # Wrap the shared db's ``try_acquire_compression_lock`` so that neither
+    # caller returns from its acquisition attempt until BOTH callers have made
+    # their real attempt.  The real method is delegated to verbatim, so the
+    # winner/loser split is decided by SQLite exactly as in production; the
+    # barrier only pins the timing so the loser is guaranteed to attempt
+    # acquisition while the winner is still holding the lock.
+    overlap_barrier = threading.Barrier(2, timeout=10)
+    _real_try_acquire = db.try_acquire_compression_lock
+
+    def _try_acquire_with_overlap(session_id, holder, *args, **kwargs):
+        acquired = _real_try_acquire(session_id, holder, *args, **kwargs)
+        # Rendezvous: hold here until the other thread has also completed its
+        # real acquisition attempt.  After this point exactly one thread owns
+        # the lock and the other has already seen it held — so the winner can
+        # safely proceed into compress()/rotate()/release() knowing the loser
+        # has already lost the race (it cannot acquire the freed lock late).
+        try:
+            overlap_barrier.wait()
+        except threading.BrokenBarrierError:
+            # Defensive: if only one thread ever reaches acquisition (a real
+            # regression where the second path never attempts the lock), the
+            # barrier times out and breaks rather than hanging the suite.
+            pass
+        return acquired
 
     results: dict[str, list | None] = {"a": None, "b": None}
     errors: list[Exception] = []
@@ -158,10 +206,11 @@ def test_concurrent_compressions_same_session_serialize(tmp_path: Path) -> None:
 
     t_a = threading.Thread(target=run, args=("a", agent_a), name="main_turn")
     t_b = threading.Thread(target=run, args=("b", agent_b), name="review_fork")
-    t_a.start()
-    t_b.start()
-    t_a.join(timeout=15)
-    t_b.join(timeout=15)
+    with patch.object(db, "try_acquire_compression_lock", _try_acquire_with_overlap):
+        t_a.start()
+        t_b.start()
+        t_a.join(timeout=15)
+        t_b.join(timeout=15)
 
     assert not errors, f"Compression raised exceptions: {errors}"
 

@@ -196,9 +196,14 @@ class TestFindAgentBrowser:
                 return False
             return original_path_exists(self)
 
+        # _find_agent_browser()'s last resort is ensure_dependency("browser"),
+        # which (non-interactively) shells out to the install script with no
+        # timeout — on a headless runner that blocks until pytest-timeout fires.
+        # Stub it to "install unavailable" so the not-found path is deterministic.
         with patch("shutil.which", return_value=None), \
              patch("os.path.isdir", return_value=False), \
              patch.object(Path, "exists", mock_path_exists), \
+             patch("hermes_cli.dep_ensure.ensure_dependency", return_value=False), \
              patch(
                  "tools.browser_tool._discover_homebrew_node_dirs",
                  return_value=[],
