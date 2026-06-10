@@ -47,3 +47,66 @@ def test_detail_is_truncated(tmp_path, monkeypatch):
     sal.record_skill_mutation("patch", "x", origin="foreground", success=False, detail="z" * 2000)
     entry = json.loads((tmp_path / "skill_audit.jsonl").read_text(encoding="utf-8").strip())
     assert len(entry["detail"]) == 500
+
+
+# --- end-to-end: the skill_manage hook actually wires to the audit log --------
+#
+# The unit tests above call record_skill_mutation directly; these drive the real
+# skill_manage() dispatch so a broken/removed hook is caught (it otherwise ships
+# green). They also prove the ContextVar origin attribution — the crux of the
+# defense: a background-review-fork write is recorded as "background_review".
+from contextlib import contextmanager
+from unittest.mock import patch
+
+from tools.skill_manager_tool import skill_manage
+from tools.skill_provenance import set_current_write_origin, reset_current_write_origin
+
+_VALID_SKILL = (
+    "---\nname: audit-probe\ndescription: A skill to test the audit hook.\n---\n\n"
+    "# Audit Probe\n\nStep 1: exist.\n"
+)
+
+
+@contextmanager
+def _wired(tmp_path, monkeypatch):
+    monkeypatch.setattr(sal, "get_hermes_home", lambda: tmp_path)
+    with patch("tools.skill_manager_tool.SKILLS_DIR", tmp_path), \
+            patch("agent.skill_utils.get_all_skills_dirs", return_value=[tmp_path]):
+        yield
+
+
+def _audit_entries(tmp_path):
+    p = tmp_path / "skill_audit.jsonl"
+    if not p.exists():
+        return []
+    return [json.loads(ln) for ln in p.read_text(encoding="utf-8").splitlines() if ln.strip()]
+
+
+def test_skill_manage_create_is_audited(tmp_path, monkeypatch):
+    with _wired(tmp_path, monkeypatch):
+        out = json.loads(skill_manage(action="create", name="audit-probe", content=_VALID_SKILL))
+    assert out["success"] is True
+    entries = _audit_entries(tmp_path)
+    assert any(e["action"] == "create" and e["skill"] == "audit-probe" and e["success"] for e in entries)
+
+
+def test_skill_manage_audits_background_review_origin(tmp_path, monkeypatch):
+    token = set_current_write_origin("background_review")
+    try:
+        with _wired(tmp_path, monkeypatch):
+            json.loads(skill_manage(action="create", name="audit-probe", content=_VALID_SKILL))
+    finally:
+        reset_current_write_origin(token)
+    entries = _audit_entries(tmp_path)
+    creates = [e for e in entries if e["action"] == "create"]
+    assert creates and creates[-1]["origin"] == "background_review"
+
+
+def test_skill_manage_audits_blocked_attempt(tmp_path, monkeypatch):
+    # An invalid-name create is blocked by validation; the audit must still
+    # record it (success=False) so blocked/injection attempts are visible.
+    with _wired(tmp_path, monkeypatch):
+        out = json.loads(skill_manage(action="create", name="Bad Name!!", content=_VALID_SKILL))
+    assert out["success"] is False
+    entries = _audit_entries(tmp_path)
+    assert any(e["action"] == "create" and e["success"] is False for e in entries)

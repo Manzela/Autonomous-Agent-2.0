@@ -2,6 +2,7 @@
 """Run Docker boot-time config migrations safely."""
 from __future__ import annotations
 
+import re
 import shutil
 import sys
 from datetime import datetime, timezone
@@ -30,22 +31,41 @@ def _backup_path(path: Path, stamp: str) -> Path:
 
 _BACKUP_RETENTION = 5
 
+# Matches ONLY this tool's own backup shape: <name>.bak-<UTC stamp>[.<n>], where
+# <n> is the collision suffix _backup_path appends within the same second.
+_BACKUP_SUFFIX_RE = re.compile(r"\.bak-(\d{8}T\d{6}Z)(?:\.(\d+))?$")
 
-def _prune_old_backups(path: Path, keep: int = _BACKUP_RETENTION) -> None:
-    """Keep only the newest ``keep`` ``<name>.bak-*`` files for ``path``.
 
-    Bounds the unbounded backup accumulation seen on network volumes where
-    the migration re-runs every boot (each run creates a new timestamped
-    backup). Best-effort: unlink failures are ignored.
+def _prune_old_backups(
+    path: Path, keep: int = _BACKUP_RETENTION, protect: Path | None = None
+) -> None:
+    """Keep only the newest ``keep`` timestamped backups for ``path``.
+
+    Bounds the unbounded backup accumulation seen on network volumes where the
+    migration re-runs every boot. Three correctness guarantees:
+      * Only files matching THIS tool's exact ``.bak-<stamp>[.<n>]`` shape are
+        candidates — operator/manual backups and ``.corrupt`` forensic artifacts
+        are never deleted.
+      * Ordering is by ``(stamp, int(collision_suffix))`` so ``.2`` sorts before
+        ``.10`` (a raw name-sort inverts those). Within a single second the
+        suffix is creation order, so a frozen clock still orders correctly.
+      * ``protect`` (the just-created backup) is NEVER unlinked, so even a clock
+        skewed backwards cannot delete the backup this run just wrote.
+    Best-effort: unlink failures are ignored.
     """
     try:
-        backups = sorted(
-            path.parent.glob(f"{path.name}.bak-*"),
-            key=lambda p: p.name,
-        )
+        candidates: list[tuple[tuple[str, int], Path]] = []
+        for p in path.parent.glob(f"{path.name}.bak-*"):
+            m = _BACKUP_SUFFIX_RE.search(p.name)
+            if m:
+                candidates.append(((m.group(1), int(m.group(2) or 0)), p))
     except OSError:
         return
-    for stale in backups[:-keep] if keep > 0 else backups:
+    candidates.sort(key=lambda t: t[0])
+    ordered = [p for _, p in candidates]
+    for stale in (ordered[:-keep] if keep > 0 else ordered):
+        if protect is not None and stale == protect:
+            continue
         try:
             stale.unlink()
         except OSError:
@@ -69,12 +89,17 @@ def _backup_existing(paths: Iterable[Path]) -> list[Path]:
             shutil.copyfile(path, dest)
             backups.append(dest)
         except OSError as exc:
+            # Tolerate so a backup failure never blocks the migration, but make
+            # it operator-visible with the errno (ENOSPC/EACCES differ from the
+            # expected gcsfuse path).
             print(
                 f"[config-migrate] Warning: could not back up {path} "
-                f"({exc}); continuing migration without a backup for it"
+                f"(errno {exc.errno}: {exc.strerror or exc}); continuing "
+                f"migration without a backup for it",
+                file=sys.stderr,
             )
             continue
-        _prune_old_backups(path)
+        _prune_old_backups(path, protect=dest)
     return backups
 
 

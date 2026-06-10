@@ -50,9 +50,11 @@ def record_skill_mutation(
 ) -> None:
     """Append one audit record for a skill mutation. Never raises.
 
-    ``origin`` is the write origin from tools.skill_provenance
-    (``"foreground"`` or ``"background_review"``). ``detail`` is an optional
-    short note (e.g. the error message for a blocked write); truncated.
+    ``origin`` is the write origin from tools.skill_provenance, recorded
+    verbatim — typically ``"assistant_tool"`` for a foreground user-directed
+    write and ``"background_review"`` for the self-improvement fork (the
+    persistence vector). ``detail`` is an optional short note (e.g. the error
+    message for a blocked write); truncated.
     """
     if action not in _MUTATING_ACTIONS:
         return

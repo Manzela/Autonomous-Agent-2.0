@@ -686,10 +686,15 @@ class S6ServiceManager:
             # than grepping /proc/mounts for "fuse" (which matched ANY fuse
             # mount anywhere in the container and wrongly diverted logs even
             # when $HERMES_HOME/logs was a perfectly writable local volume).
-            # The touch+chmod probe is sufficient on its own: gcsfuse rejects
-            # chmod (the same syscall that breaks config migration there), so
-            # a chmod failure IS the network-filesystem signal — scoped to the
-            # filesystem that actually backs $log_dir.
+            # The probe diverts to /tmp when touch OR chmod fails on $log_dir.
+            # A chmod failure is the common gcsfuse signal (chmod raises EPERM
+            # on the mount configs this targets). Note this is best-effort, not
+            # a definitive network-FS detector: some gcsfuse versions/mount
+            # options make chmod a silent no-op (succeeds) — there the probe
+            # passes and s6-log writes to the mount, which is acceptable for
+            # append-rotation. The probe runs as root here; standard gcsfuse
+            # mounts use uid=hermes so the subsequent hermes-owned s6-log write
+            # succeeds (set the volume's uid/gid to hermes).
             f'probe="$log_dir/.permissions_test"\n'
             f'if ! touch "$probe" 2>/dev/null || ! chmod 600 "$probe" 2>/dev/null; then\n'
             f'    rm -f "$probe" 2>/dev/null || true\n'

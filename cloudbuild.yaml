@@ -24,6 +24,20 @@ options:
     - DOCKER_BUILDKIT=1
 
 steps:
+  # Refuse the placeholder SHA so an un-substituted submit can't push an
+  # untraceable :latest (use deploy/submit.sh, which passes the real SHA).
+  - id: require-sha
+    name: gcr.io/cloud-builders/docker
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        if [ "${_GIT_SHA}" = "dev-local" ]; then
+          echo "FATAL: _GIT_SHA is the placeholder 'dev-local'. Submit via deploy/submit.sh"
+          echo "       or pass --substitutions=_GIT_SHA=\$(git rev-parse HEAD)."
+          exit 1
+        fi
+
   # Warm the layer cache from the previous :latest (tolerate first-ever build).
   - id: pull-cache
     name: gcr.io/cloud-builders/docker
@@ -58,7 +72,7 @@ steps:
       - |
         docker run --rm -v /workspace:/src -w /src --entrypoint sh \
           "${_IMAGE}:${_GIT_SHA}" -c '
-            /opt/hermes/.venv/bin/pip install -q \
+            /usr/local/bin/uv pip install --python /opt/hermes/.venv/bin/python -q \
               pytest==9.0.2 pytest-asyncio==1.3.0 pytest-timeout==2.4.0 &&
             PYTHONPATH=/src /opt/hermes/.venv/bin/python -m pytest \
               -p no:cacheprovider -q \

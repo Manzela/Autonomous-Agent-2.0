@@ -201,3 +201,44 @@ def test_backup_retention_keeps_newest_five(tmp_path: Path) -> None:
     assert len(remaining) == mod._BACKUP_RETENTION == 5
     # The newest (just-created) backup is retained; the oldest are pruned.
     assert "config.yaml.bak-20260100T000000Z" not in remaining
+
+
+def test_backup_retention_orders_collision_suffixes_numerically(tmp_path: Path) -> None:
+    # Same-second backups disambiguate with .1/.2/.../.12. A lexicographic
+    # name-sort would put .10/.11/.12 before .2 and prune the NEWEST; the parsed
+    # (stamp, int) sort must keep the highest-suffix files.
+    mod = _load_migrate_module()
+    stamp = "20260101T000000Z"
+    names = [f"config.yaml.bak-{stamp}"] + [f"config.yaml.bak-{stamp}.{i}" for i in range(1, 13)]
+    for n in names:
+        (tmp_path / n).write_text("x", encoding="utf-8")  # 13 backups, all same second
+
+    mod._prune_old_backups(tmp_path / "config.yaml", keep=5)
+
+    remaining = {p.name for p in tmp_path.glob("config.yaml.bak-*")}
+    assert len(remaining) == 5
+    # The five highest collision suffixes (.8..12) are the newest and survive;
+    # the suffix-less base and low suffixes are pruned. (Set compare — a raw
+    # name-sort would lexicographically order .10 before .2 and keep the wrong 5.)
+    assert remaining == {f"config.yaml.bak-{stamp}.{i}" for i in (8, 9, 10, 11, 12)}
+
+
+def test_backup_retention_never_prunes_just_created_or_foreign(tmp_path: Path) -> None:
+    mod = _load_migrate_module()
+    src = tmp_path / "config.yaml"
+    src.write_text("model: gpt\n", encoding="utf-8")
+    # Foreign artifacts that share the prefix but not the timestamp shape.
+    (tmp_path / "config.yaml.bak-OLDmanual").write_text("manual", encoding="utf-8")
+    (tmp_path / "config.yaml.bak-20260101T000000Z.corrupt").write_text("forensic", encoding="utf-8")
+    # Plenty of real backups so the keep window is exceeded.
+    for i in range(7):
+        (tmp_path / f"config.yaml.bak-2026010{i}T000000Z").write_text("old", encoding="utf-8")
+
+    created = mod._backup_existing([src])
+
+    names = {p.name for p in tmp_path.glob("config.yaml.bak-*")}
+    # Foreign / non-timestamp artifacts are never deleted.
+    assert "config.yaml.bak-OLDmanual" in names
+    assert "config.yaml.bak-20260101T000000Z.corrupt" in names
+    # The just-created backup survives regardless of clock ordering.
+    assert created and created[0].name in names

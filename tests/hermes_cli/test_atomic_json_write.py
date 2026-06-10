@@ -101,6 +101,10 @@ class TestAtomicJsonWrite:
         assert json.loads(target.read_text(encoding="utf-8")) == {"token": "abc"}
         # And no temp file is orphaned by the tolerated failure.
         assert not [f for f in tmp_path.iterdir() if ".tmp" in f.name]
+        # Security contract: the secret is never left broader than 0600. With
+        # both chmod paths failing, the file keeps mkstemp's 0600 baseline.
+        import stat
+        assert stat.S_IMODE(target.stat().st_mode) <= 0o600
 
     def test_accepts_string_path(self, tmp_path):
         target = str(tmp_path / "string_path.json")

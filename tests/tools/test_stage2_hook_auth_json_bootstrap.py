@@ -73,7 +73,7 @@ def test_auth_block_is_atomic_and_validated(stage2_text: str) -> None:
 
 
 def _run_auth_seed(
-    text: str, *, env_value: str | None, chmod_fails: bool
+    text: str, *, env_value: str | None, chmod_fails: bool, mv_fails: bool = False
 ) -> tuple[int, str | None, int | None, str]:
     """Run the extracted auth.json seed block in a sandbox.
 
@@ -98,6 +98,7 @@ def _run_auth_seed(
         py.chmod(0o755)
 
         chmod_stub = "chmod() { return 1; }\n" if chmod_fails else "chmod() { command chmod \"$@\"; }\n"
+        mv_stub = "mv() { return 1; }\n" if mv_fails else ""
         env_line = (
             f'export HERMES_AUTH_JSON_BOOTSTRAP={_sh_quote(env_value)}\n'
             if env_value is not None
@@ -109,6 +110,7 @@ def _run_auth_seed(
             f'INSTALL_DIR="{dpath / "install"}"\n'
             "chown() { :; }\n"
             + chmod_stub
+            + mv_stub
             + env_line
             + block
         )
@@ -155,10 +157,33 @@ def test_invalid_json_leaves_auth_unseeded_and_warns(stage2_text: str) -> None:
     )
     assert rc == 0, "invalid input must not abort the hook"
     assert contents is None, "auth.json must NOT be created from invalid JSON"
-    assert "not valid JSON" in stderr
+    assert "valid JSON object" in stderr
 
 
 def test_no_env_no_file(stage2_text: str) -> None:
     rc, contents, _mode, _ = _run_auth_seed(stage2_text, env_value=None, chmod_fails=False)
     assert rc == 0
     assert contents is None
+
+
+@pytest.mark.parametrize("value", ["null", "42", "true", '"a string"', "[1,2,3]"])
+def test_non_object_json_left_unseeded(stage2_text: str, value: str) -> None:
+    # Valid JSON that is NOT an object (auth.json must be a dict) must be refused
+    # and not pinned forever behind the [ ! -f ] guard.
+    rc, contents, _mode, stderr = _run_auth_seed(stage2_text, env_value=value, chmod_fails=False)
+    assert rc == 0
+    assert contents is None, f"non-object JSON {value!r} must not seed auth.json"
+    assert "valid JSON object" in stderr
+
+
+def test_mv_failure_does_not_abort_or_leak(stage2_text: str) -> None:
+    # On gcsfuse, rename (copy+delete) can fail; under `set -e` an unguarded mv
+    # would abort the hook and strand the cleartext temp. The block must exit 0,
+    # not install auth.json, and leave no .auth.json.bootstrap.* temp.
+    rc, contents, _mode, stderr = _run_auth_seed(
+        stage2_text, env_value='{"token": "abc"}', chmod_fails=False, mv_fails=True
+    )
+    assert rc == 0, "mv failure must not abort the hook"
+    assert contents is None, "auth.json must not be installed when mv fails"
+    assert "mv failed" in stderr
+    # (_run_auth_seed already asserts no .auth.json.bootstrap.* temp survives.)

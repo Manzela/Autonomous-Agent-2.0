@@ -369,15 +369,28 @@ fi
 # that honours modes (the later chmod is best-effort and a no-op on gcsfuse,
 # where the object mode comes from the mount's file-mode option, not umask).
 if [ ! -f "$HERMES_HOME/auth.json" ] && [ -n "${HERMES_AUTH_JSON_BOOTSTRAP:-}" ]; then
+    # Sweep any orphaned cleartext temp from a crashed/aborted prior boot before
+    # seeding — they hold the credential at 0600 and would otherwise accumulate.
+    rm -f "$HERMES_HOME"/.auth.json.bootstrap.* 2>/dev/null || true
     _auth_tmp="$HERMES_HOME/.auth.json.bootstrap.$$"
     ( umask 077; printf '%s' "$HERMES_AUTH_JSON_BOOTSTRAP" > "$_auth_tmp" )
+    # Require a JSON OBJECT (auth.json is a dict). A bare scalar/array/null
+    # parses as JSON but is useless and would be pinned forever behind [ ! -f ].
     if "$INSTALL_DIR/.venv/bin/python" -c \
-            'import json,sys; json.load(open(sys.argv[1]))' "$_auth_tmp" 2>/dev/null; then
-        mv -f "$_auth_tmp" "$HERMES_HOME/auth.json"
-        chown hermes:hermes "$HERMES_HOME/auth.json" 2>/dev/null || true
-        chmod 600 "$HERMES_HOME/auth.json" 2>/dev/null || true
+            'import json,sys; d=json.load(open(sys.argv[1])); sys.exit(0 if isinstance(d, dict) else 1)' \
+            "$_auth_tmp" 2>/dev/null; then
+        # Guard the rename: under `set -e` an unguarded mv failure (gcsfuse
+        # rename = copy+delete, can EPERM/contend) would ABORT the whole hook
+        # AND strand the cleartext temp. Never abort, never leak.
+        if mv -f "$_auth_tmp" "$HERMES_HOME/auth.json"; then
+            chown hermes:hermes "$HERMES_HOME/auth.json" 2>/dev/null || true
+            chmod 600 "$HERMES_HOME/auth.json" 2>/dev/null || true
+        else
+            echo "[stage2] ERROR: could not install auth.json (mv failed); leaving unseeded" >&2
+            rm -f "$_auth_tmp" 2>/dev/null || true
+        fi
     else
-        echo "[stage2] ERROR: HERMES_AUTH_JSON_BOOTSTRAP is not valid JSON; leaving auth.json unseeded" >&2
+        echo "[stage2] ERROR: HERMES_AUTH_JSON_BOOTSTRAP is not a valid JSON object; leaving auth.json unseeded" >&2
         rm -f "$_auth_tmp" 2>/dev/null || true
     fi
 fi

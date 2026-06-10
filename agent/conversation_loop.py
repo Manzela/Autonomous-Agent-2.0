@@ -4545,9 +4545,10 @@ def run_conversation(
             )
         except Exception:
             # Best-effort, but do not fail SILENTLY: a spawn that never starts
-            # means the self-improvement loop quietly stopped. Surface it (the
-            # review thread logs its own failures at WARNING separately).
-            logger.debug("Failed to spawn background review", exc_info=True)
+            # means the self-improvement loop quietly stopped. WARNING so it is
+            # visible at the gateway's default INFO level (the review thread
+            # logs its own failures at WARNING separately).
+            logger.warning("Failed to spawn background review", exc_info=True)
 
     # Note: Memory provider on_session_end() + shutdown_all() are NOT
     # called here — run_conversation() is called once per user message in
