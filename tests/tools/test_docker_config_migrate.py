@@ -107,6 +107,23 @@ def test_docker_config_migrate_backs_up_and_migrates_unversioned_config(tmp_path
     assert list(tmp_path.glob("config.yaml.bak-*"))
 
 
+def test_seeded_example_config_skips_migration(tmp_path: Path) -> None:
+    # A freshly-seeded volume (config.yaml copied verbatim from
+    # cli-config.yaml.example) must already be current: no legacy 0->N migration
+    # runs and no backup is created. Guards the _config_version stamp against
+    # regression (removal or a shape drift would re-introduce per-boot churn).
+    import shutil as _sh
+
+    example = REPO_ROOT / "cli-config.yaml.example"
+    _sh.copyfile(example, tmp_path / "config.yaml")
+
+    proc = _run_migration(tmp_path)
+
+    assert proc.returncode == 0, proc.stderr
+    assert "Migrating config schema" not in proc.stdout
+    assert not list(tmp_path.glob("config.yaml.bak-*"))
+
+
 def test_docker_config_migrate_does_not_rewrite_invalid_yaml(tmp_path: Path) -> None:
     config_path = tmp_path / "config.yaml"
     original = "model: [unterminated\n"

@@ -2,6 +2,12 @@
 # Copy this file to cli-config.yaml and customize as needed.
 # This file configures the CLI behavior. Environment variables in .env take precedence.
 
+# Schema version of this template. Keep in sync with DEFAULT_CONFIG["_config_version"]
+# (hermes_cli/config.py). Stamping it here means a freshly-seeded volume is already
+# current and skips the full 0->N legacy migration chain on first boot (which would
+# otherwise rewrite config + drop a backup every boot on a Docker/volume install).
+_config_version: 28
+
 # =============================================================================
 # Model Configuration
 # =============================================================================
