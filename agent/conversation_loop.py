@@ -4544,7 +4544,10 @@ def run_conversation(
                 review_skills=_should_review_skills,
             )
         except Exception:
-            pass  # Background review is best-effort
+            # Best-effort, but do not fail SILENTLY: a spawn that never starts
+            # means the self-improvement loop quietly stopped. Surface it (the
+            # review thread logs its own failures at WARNING separately).
+            logger.debug("Failed to spawn background review", exc_info=True)
 
     # Note: Memory provider on_session_end() + shutdown_all() are NOT
     # called here — run_conversation() is called once per user message in

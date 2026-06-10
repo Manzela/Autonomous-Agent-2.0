@@ -899,6 +899,26 @@ def skill_manage(
         except Exception:
             pass
 
+    # Append-only audit trail of skill mutations, attributed to the write
+    # origin (foreground vs background-review fork). Records both successful and
+    # blocked attempts so a poisoned/unexpected skill — especially one the
+    # self-improvement fork wrote from injected conversation content — is
+    # traceable and revertible. Best-effort; never breaks the tool.
+    try:
+        from tools.skill_audit_log import record_skill_mutation, _MUTATING_ACTIONS
+        from tools.skill_provenance import get_current_write_origin
+        if action in _MUTATING_ACTIONS:
+            _ok = bool(result.get("success"))
+            record_skill_mutation(
+                action,
+                name,
+                origin=get_current_write_origin(),
+                success=_ok,
+                detail=None if _ok else str(result.get("error", ""))[:200],
+            )
+    except Exception:
+        pass
+
     return json.dumps(result, ensure_ascii=False)
 
 
