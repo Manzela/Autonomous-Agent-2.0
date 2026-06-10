@@ -334,3 +334,14 @@ select = ["PLW1514"]
 "skills/**" = ["PLW1514"]
 "optional-skills/**" = ["PLW1514"]
 "plugins/**" = ["PLW1514"]
+
+[tool.uv]
+# Security floors for TRANSITIVE dependencies flagged by Dependabot. These are not
+# direct deps; constraint-dependencies forces the resolver to pick at-least the
+# patched version without otherwise reshaping the graph. Drop an entry once the
+# parent package's own floor moves past it. Both are minor, backward-compatible
+# bumps within the same major — verified against the full test suite.
+constraint-dependencies = [
+    "urllib3>=2.7.0",        # was 2.6.3 — transitive via botocore/requests (in agent image)
+    "cbor2>=5.9.0,<6",       # was 5.8.0 — patched 5.9.x only; avoid the 6.x major bump
+]
