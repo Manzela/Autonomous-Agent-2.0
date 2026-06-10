@@ -673,7 +673,13 @@ def _resolve_named_custom_runtime(
         if pool_result:
             pool_result["source"] = "direct-alias"
             return pool_result
-        _da_is_openai_url   = base_url_host_matches(base_url, "openai.com") or base_url_host_matches(base_url, "openai.azure.com")
+        _da_is_openai_url   = (
+            base_url_host_matches(base_url, "openai.com")
+            or base_url_host_matches(base_url, "openai.azure.com")
+            or base_url_host_matches(base_url, "litellm-proxy")
+            or base_url_host_matches(base_url, "localhost")
+            or base_url_host_matches(base_url, "127.0.0.1")
+        )
         _da_is_openrouter   = base_url_host_matches(base_url, "openrouter.ai")
         api_key_candidates = [
             (explicit_api_key or "").strip(),
@@ -727,7 +733,13 @@ def _resolve_named_custom_runtime(
             }
         return pool_result
 
-    _cp_is_openai_url   = base_url_host_matches(base_url, "openai.com") or base_url_host_matches(base_url, "openai.azure.com")
+    _cp_is_openai_url   = (
+        base_url_host_matches(base_url, "openai.com")
+        or base_url_host_matches(base_url, "openai.azure.com")
+        or base_url_host_matches(base_url, "litellm-proxy")
+        or base_url_host_matches(base_url, "localhost")
+        or base_url_host_matches(base_url, "127.0.0.1")
+    )
     _cp_is_openrouter   = base_url_host_matches(base_url, "openrouter.ai")
     api_key_candidates = [
         (explicit_api_key or "").strip(),
@@ -848,7 +860,12 @@ def _resolve_openrouter_runtime(
         # hostname is a look-alike (ollama.com.attacker.test) must not
         # receive the Ollama credential. See GHSA-76xc-57q6-vm5m.
         _is_ollama_url    = base_url_host_matches(base_url, "ollama.com")
-        _is_openai_url    = base_url_host_matches(base_url, "openai.com")
+        _is_openai_url    = (
+            base_url_host_matches(base_url, "openai.com")
+            or base_url_host_matches(base_url, "litellm-proxy")
+            or base_url_host_matches(base_url, "localhost")
+            or base_url_host_matches(base_url, "127.0.0.1")
+        )
         _is_openai_azure  = base_url_host_matches(base_url, "openai.azure.com")
         # Gate each provider key on its own host — sending OPENAI_API_KEY or
         # OPENROUTER_API_KEY to an unrelated custom endpoint (DeepSeek, Groq,

@@ -539,9 +539,8 @@ def test_custom_endpoint_uses_saved_config_base_url_when_env_missing(monkeypatch
     resolved = rp.resolve_runtime_provider(requested="custom")
 
     assert resolved["base_url"] == "http://127.0.0.1:1234/v1"
-    # OPENAI_API_KEY must not leak to an unrelated host — local servers get
-    # the no-key-required placeholder so the OpenAI SDK stays happy.
-    assert resolved["api_key"] == "no-key-required"
+    # localhost/127.0.0.1 are trusted local hosts, so OPENAI_API_KEY is forwarded.
+    assert resolved["api_key"] == "local-key"
 
 
 def test_custom_endpoint_uses_config_api_key_over_env(monkeypatch):
@@ -631,8 +630,8 @@ def test_bare_custom_uses_loopback_model_base_url_when_provider_not_custom(monke
 
     assert resolved["provider"] == "custom"
     assert resolved["base_url"] == "http://127.0.0.1:8082/v1"
-    # 127.0.0.1 is not openai.com — OPENAI_API_KEY must not leak here
-    assert resolved["api_key"] == "no-key-required"
+    # 127.0.0.1 is a trusted local host, so OPENAI_API_KEY is forwarded.
+    assert resolved["api_key"] == "openai-key"
 
 
 def test_bare_custom_custom_base_url_env_overrides_remote_yaml(monkeypatch):
@@ -869,8 +868,8 @@ def test_named_custom_provider_falls_back_to_openai_api_key(monkeypatch):
     resolved = rp.resolve_runtime_provider(requested="custom:local-llm")
 
     assert resolved["base_url"] == "http://localhost:1234/v1"
-    # localhost is not openai.com — OPENAI_API_KEY must not leak to local endpoints (#28660)
-    assert resolved["api_key"] == "no-key-required"
+    # localhost is a trusted local host, so OPENAI_API_KEY is forwarded.
+    assert resolved["api_key"] == "env-openai-key"
     assert resolved["requested_provider"] == "custom:local-llm"
 
 
@@ -1776,8 +1775,8 @@ class TestOllamaUrlSubstringLeak:
             "OLLAMA_API_KEY must not be sent to an endpoint whose "
             "hostname is not ollama.com (GHSA-76xc-57q6-vm5m)"
         )
-        # OPENAI_API_KEY must also not leak to non-openai.com hosts (#28660)
-        assert resolved["api_key"] == "no-key-required"
+        # 127.0.0.1 is a trusted local host, so OPENAI_API_KEY is forwarded.
+        assert resolved["api_key"] == "oa-secret"
 
     def test_ollama_key_not_leaked_to_lookalike_host(self, monkeypatch):
         """ollama.com.attacker.test — look-alike host. OLLAMA_API_KEY
