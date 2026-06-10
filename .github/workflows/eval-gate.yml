@@ -1,0 +1,29 @@
+# Acceptance eval gate — runs the deterministic behavioral evals in evals/ on every
+# PR + push. These assert product-level safety invariants (e.g. output secret
+# scrubbing) rather than implementation details. Grow this suite as the product does.
+name: Eval gate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions: {}
+
+concurrency:
+  group: evals-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  acceptance-evals:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
+      - name: Install (frozen) + run acceptance evals
+        run: |
+          uv sync --frozen --extra all --extra messaging --quiet || uv sync --frozen --quiet
+          uv run --frozen python -m pytest -p no:cacheprovider -q evals/
