@@ -36,9 +36,13 @@ registry and rolls the target. Use **Workload Identity Federation** (no SA keys)
 any cloud auth, gate production behind a GitHub **environment** with required
 reviewers, and tag images by **immutable git SHA** (never `:latest`).
 
-## Inherited workflows to disable on this fork
+## Inherited upstream workflows
 
-These target upstream NousResearch infra and will misfire here — disable after import:
-`upload_to_pypi.yml`, `deploy-site.yml`, `skills-index.yml`, `skills-index-freshness.yml`
-(`docker-publish.yml` is already repo-gated to NousResearch, so it no-ops). Disable with
+The four that publish/deploy to NousResearch infra — `upload_to_pypi.yml`,
+`deploy-site.yml`, `skills-index.yml`, `skills-index-freshness.yml` — have been
+**removed** (wrong target for a standalone repo). `docker-publish.yml` is repo-gated
+to `NousResearch/hermes-agent`, so it no-ops here and is left in place. The remaining
+check-only workflows (`contributor-check`, `history-check`, `docs-site-checks`) are
+non-blocking (not in the required-status-checks set); adapt or disable them if their
+upstream-specific assertions (AUTHOR_MAP, commit-history conventions) are unwanted:
 `gh workflow disable <name> --repo Manzela/Autonomous-Agent-2.0`.
