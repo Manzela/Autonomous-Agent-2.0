@@ -364,11 +364,12 @@ _container_detected: bool | None = None
 
 
 def is_container() -> bool:
-    """Return True when running inside a Docker/Podman container.
+    """Return True when running inside a Docker/Podman/serverless container.
 
     Checks ``/.dockerenv`` (Docker), ``/run/.containerenv`` (Podman),
-    and ``/proc/1/cgroup`` for container runtime markers.  Result is
-    cached for the process lifetime.  Import-safe — no heavy deps.
+    the ``K_SERVICE`` env var (Cloud Run / Knative), and ``/proc/1/cgroup``
+    for container runtime markers.  Result is cached for the process
+    lifetime.  Import-safe — no heavy deps.
     """
     global _container_detected
     if _container_detected is not None:
@@ -377,6 +378,17 @@ def is_container() -> bool:
         _container_detected = True
         return True
     if os.path.exists("/run/.containerenv"):
+        _container_detected = True
+        return True
+    # Cloud Run / Knative run the image as a container but mount neither
+    # /.dockerenv nor /run/.containerenv and expose no container cgroup marker,
+    # so the checks above miss them. Every instance sets K_SERVICE (alongside
+    # K_REVISION / K_CONFIGURATION). Without this, detect_service_manager()
+    # wrongly concludes s6 is absent and the `gateway run` CMD starts a second,
+    # UNSUPERVISED gateway beside the s6-supervised one; they race for the
+    # runtime lock and the loser exits "lock already held", tearing the
+    # container down (the observed Cloud Run boot-failure loop).
+    if os.environ.get("K_SERVICE"):
         _container_detected = True
         return True
     try:

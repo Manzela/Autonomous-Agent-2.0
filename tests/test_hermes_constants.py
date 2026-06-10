@@ -135,10 +135,26 @@ class TestIsContainer:
         monkeypatch.setattr("builtins.open", lambda p, *a, **kw: _real_open(str(cgroup_file), *a, **kw) if p == "/proc/1/cgroup" else _real_open(p, *a, **kw))
         assert is_container() is True
 
-    def test_negative_case(self, monkeypatch, tmp_path):
-        """Returns False on a regular Linux host."""
+    def test_detects_cloud_run_k_service(self, monkeypatch, tmp_path):
+        """K_SERVICE (Cloud Run / Knative) triggers container detection even
+        when no /.dockerenv, /run/.containerenv, or container cgroup exists —
+        the conditions under which Cloud Run otherwise looked like a bare host
+        and the gateway dual-started."""
         import builtins
         self._reset_cache(monkeypatch)
+        monkeypatch.setattr(os.path, "exists", lambda p: False)
+        monkeypatch.setenv("K_SERVICE", "hermes-gateway")
+        cgroup_file = tmp_path / "cgroup"
+        cgroup_file.write_text("12:memory:/\n")
+        _real_open = builtins.open
+        monkeypatch.setattr("builtins.open", lambda p, *a, **kw: _real_open(str(cgroup_file), *a, **kw) if p == "/proc/1/cgroup" else _real_open(p, *a, **kw))
+        assert is_container() is True
+
+    def test_negative_case(self, monkeypatch, tmp_path):
+        """Returns False on a regular Linux host (no serverless markers)."""
+        import builtins
+        self._reset_cache(monkeypatch)
+        monkeypatch.delenv("K_SERVICE", raising=False)
         monkeypatch.setattr(os.path, "exists", lambda p: False)
         cgroup_file = tmp_path / "cgroup"
         cgroup_file.write_text("12:memory:/\n")
