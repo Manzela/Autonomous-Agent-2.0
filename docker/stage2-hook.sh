@@ -360,10 +360,26 @@ fi
 # auth.json: bootstrap from env on first boot only. Same semantics as the
 # pre-s6 entrypoint — the [ ! -f ] guard is critical to avoid clobbering
 # rotated refresh tokens on container restart.
+#
+# Written atomically (temp file + mv) and validated as JSON before being
+# moved into place. A bare `printf > auth.json` that was interrupted mid-write
+# left a TRUNCATED auth.json that the [ ! -f ] guard then protected forever,
+# permanently blocking re-seed; and an invalid env value would be pinned the
+# same way. `umask 077` makes the file 0600 at creation on any filesystem
+# that honours modes (the later chmod is best-effort and a no-op on gcsfuse,
+# where the object mode comes from the mount's file-mode option, not umask).
 if [ ! -f "$HERMES_HOME/auth.json" ] && [ -n "${HERMES_AUTH_JSON_BOOTSTRAP:-}" ]; then
-    printf '%s' "$HERMES_AUTH_JSON_BOOTSTRAP" > "$HERMES_HOME/auth.json"
-    chown hermes:hermes "$HERMES_HOME/auth.json" 2>/dev/null || true
-    chmod 600 "$HERMES_HOME/auth.json" 2>/dev/null || true
+    _auth_tmp="$HERMES_HOME/.auth.json.bootstrap.$$"
+    ( umask 077; printf '%s' "$HERMES_AUTH_JSON_BOOTSTRAP" > "$_auth_tmp" )
+    if "$INSTALL_DIR/.venv/bin/python" -c \
+            'import json,sys; json.load(open(sys.argv[1]))' "$_auth_tmp" 2>/dev/null; then
+        mv -f "$_auth_tmp" "$HERMES_HOME/auth.json"
+        chown hermes:hermes "$HERMES_HOME/auth.json" 2>/dev/null || true
+        chmod 600 "$HERMES_HOME/auth.json" 2>/dev/null || true
+    else
+        echo "[stage2] ERROR: HERMES_AUTH_JSON_BOOTSTRAP is not valid JSON; leaving auth.json unseeded"
+        rm -f "$_auth_tmp" 2>/dev/null || true
+    fi
 fi
 
 # gateway_state.json: declare the gateway's INITIAL supervised state on a

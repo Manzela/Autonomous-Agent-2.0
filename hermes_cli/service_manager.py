@@ -614,10 +614,17 @@ class S6ServiceManager:
         # start`, etc. See `_gateway_command_inner` for the matching
         # guard.
         lines.append("export HERMES_S6_SUPERVISED_CHILD=1")
+        # ``-v`` (INFO) so operationally important INFO-level lines — cron
+        # fast-forward/skip notices, the periodic [MEMORY] RSS series, restart
+        # banners — reach stderr and therefore Cloud Logging (stdout/stderr is
+        # the only log sink Cloud Run captures; the persisted file logs live on
+        # a volume that may be a network mount). Default stderr level is
+        # WARNING, which drops all of the above. ``-vv`` (DEBUG) is deliberately
+        # avoided — it floods logs and lowers the root logger for all handlers.
         if profile == "default":
-            gateway_cmd = "hermes gateway run"
+            gateway_cmd = "hermes gateway run -v"
         else:
-            gateway_cmd = f"hermes -p {shlex.quote(profile)} gateway run"
+            gateway_cmd = f"hermes -p {shlex.quote(profile)} gateway run -v"
         # Skip the drop when already non-root (setgroups() lacks CAP_SETGID →
         # s6 boot-loop).
         lines.append(f'[ "$(id -u)" = 0 ] || exec {gateway_cmd}')
@@ -675,7 +682,17 @@ class S6ServiceManager:
             f': "${{HERMES_HOME:=/opt/data}}"\n'
             f'log_dir="$HERMES_HOME/logs/gateways/{prof}"\n'
             f'mkdir -p "$log_dir"\n'
-            f'if grep -q -E "gcsfuse|fuse" /proc/mounts 2>/dev/null || ! touch "$log_dir/.permissions_test" 2>/dev/null || ! chmod 600 "$log_dir/.permissions_test" 2>/dev/null; then\n'
+            # Probe the ACTUAL log dir for writability + mode support rather
+            # than grepping /proc/mounts for "fuse" (which matched ANY fuse
+            # mount anywhere in the container and wrongly diverted logs even
+            # when $HERMES_HOME/logs was a perfectly writable local volume).
+            # The touch+chmod probe is sufficient on its own: gcsfuse rejects
+            # chmod (the same syscall that breaks config migration there), so
+            # a chmod failure IS the network-filesystem signal — scoped to the
+            # filesystem that actually backs $log_dir.
+            f'probe="$log_dir/.permissions_test"\n'
+            f'if ! touch "$probe" 2>/dev/null || ! chmod 600 "$probe" 2>/dev/null; then\n'
+            f'    rm -f "$probe" 2>/dev/null || true\n'
             f'    log_dir="/tmp/logs/gateways/{prof}"\n'
             f'    mkdir -p "$log_dir"\n'
             f'fi\n'

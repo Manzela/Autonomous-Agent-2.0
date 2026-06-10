@@ -28,6 +28,30 @@ def _backup_path(path: Path, stamp: str) -> Path:
     raise RuntimeError(f"could not choose a backup path for {path}")
 
 
+_BACKUP_RETENTION = 5
+
+
+def _prune_old_backups(path: Path, keep: int = _BACKUP_RETENTION) -> None:
+    """Keep only the newest ``keep`` ``<name>.bak-*`` files for ``path``.
+
+    Bounds the unbounded backup accumulation seen on network volumes where
+    the migration re-runs every boot (each run creates a new timestamped
+    backup). Best-effort: unlink failures are ignored.
+    """
+    try:
+        backups = sorted(
+            path.parent.glob(f"{path.name}.bak-*"),
+            key=lambda p: p.name,
+        )
+    except OSError:
+        return
+    for stale in backups[:-keep] if keep > 0 else backups:
+        try:
+            stale.unlink()
+        except OSError:
+            pass
+
+
 def _backup_existing(paths: Iterable[Path]) -> list[Path]:
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     backups: list[Path] = []
@@ -35,8 +59,22 @@ def _backup_existing(paths: Iterable[Path]) -> list[Path]:
         if not path.is_file():
             continue
         dest = _backup_path(path, stamp)
-        shutil.copy(path, dest)
-        backups.append(dest)
+        try:
+            # copyfile copies *data only* — no os.chmod/utime/copystat. On
+            # network filesystems (gcsfuse, some NFS/SMB) chmod raises EPERM,
+            # which previously aborted the entire migration every boot (the
+            # backup succeeded, copymode failed) so the schema never advanced
+            # and a new backup leaked on each restart. Data-only copy + a
+            # tolerant guard keeps migrations running on those mounts.
+            shutil.copyfile(path, dest)
+            backups.append(dest)
+        except OSError as exc:
+            print(
+                f"[config-migrate] Warning: could not back up {path} "
+                f"({exc}); continuing migration without a backup for it"
+            )
+            continue
+        _prune_old_backups(path)
     return backups
 
 
