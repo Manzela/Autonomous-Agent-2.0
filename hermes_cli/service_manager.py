@@ -675,6 +675,11 @@ class S6ServiceManager:
             f': "${{HERMES_HOME:=/opt/data}}"\n'
             f'log_dir="$HERMES_HOME/logs/gateways/{prof}"\n'
             f'mkdir -p "$log_dir"\n'
+            f'if grep -q -E "gcsfuse|fuse" /proc/mounts 2>/dev/null || ! touch "$log_dir/.permissions_test" 2>/dev/null || ! chmod 600 "$log_dir/.permissions_test" 2>/dev/null; then\n'
+            f'    log_dir="/tmp/logs/gateways/{prof}"\n'
+            f'    mkdir -p "$log_dir"\n'
+            f'fi\n'
+            f'rm -f "$log_dir/.permissions_test" 2>/dev/null || true\n'
             f'chown -R hermes:hermes "$log_dir" 2>/dev/null || true\n'
             # Skip the drop when already non-root (CAP_SETGID).
             f'[ "$(id -u)" = 0 ] || exec s6-log 1 n10 s1000000 T "$log_dir"\n'

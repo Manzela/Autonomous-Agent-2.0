@@ -363,7 +363,7 @@ fi
 if [ ! -f "$HERMES_HOME/auth.json" ] && [ -n "${HERMES_AUTH_JSON_BOOTSTRAP:-}" ]; then
     printf '%s' "$HERMES_AUTH_JSON_BOOTSTRAP" > "$HERMES_HOME/auth.json"
     chown hermes:hermes "$HERMES_HOME/auth.json" 2>/dev/null || true
-    chmod 600 "$HERMES_HOME/auth.json"
+    chmod 600 "$HERMES_HOME/auth.json" 2>/dev/null || true
 fi
 
 # gateway_state.json: declare the gateway's INITIAL supervised state on a
@@ -395,7 +395,7 @@ if [ ! -f "$HERMES_HOME/gateway_state.json" ] && \
         [ "${HERMES_GATEWAY_BOOTSTRAP_STATE:-}" = "running" ]; then
     printf '{"gateway_state":"running"}\n' > "$HERMES_HOME/gateway_state.json"
     chown hermes:hermes "$HERMES_HOME/gateway_state.json" 2>/dev/null || true
-    chmod 644 "$HERMES_HOME/gateway_state.json"
+    chmod 644 "$HERMES_HOME/gateway_state.json" 2>/dev/null || true
 fi
 
 # --- Sync bundled skills ---

@@ -49,10 +49,8 @@ def _get_pid_path() -> Path:
 
 def _get_gateway_lock_path(pid_path: Optional[Path] = None) -> Path:
     """Return the path to the runtime gateway lock file."""
-    if pid_path is not None:
-        return pid_path.with_name(_GATEWAY_LOCK_FILENAME)
-    home = get_hermes_home()
-    return home / _GATEWAY_LOCK_FILENAME
+    resolved_pid_path = pid_path or _get_pid_path()
+    return resolved_pid_path.with_name(_GATEWAY_LOCK_FILENAME)
 
 
 def _get_runtime_status_path() -> Path:

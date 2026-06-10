@@ -35,7 +35,7 @@ def _backup_existing(paths: Iterable[Path]) -> list[Path]:
         if not path.is_file():
             continue
         dest = _backup_path(path, stamp)
-        shutil.copy2(path, dest)
+        shutil.copy(path, dest)
         backups.append(dest)
     return backups
 
