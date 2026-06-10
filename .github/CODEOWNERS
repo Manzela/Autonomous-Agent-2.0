@@ -1,0 +1,19 @@
+# Code ownership for Autonomous-Agent-2.0. Required reviewers are enforced via
+# branch protection (see scripts/repo-bootstrap.sh). Replace @Manzela with a
+# team handle once a team exists.
+
+# Default owner for everything not matched below.
+*                               @Manzela
+
+# Security-/deploy-critical surfaces — review with extra care.
+/.github/                       @Manzela
+/.github/workflows/             @Manzela
+/docker/                        @Manzela
+/Dockerfile                     @Manzela
+/cloudbuild.yaml                @Manzela
+/scripts/                       @Manzela
+/hermes_cli/service_manager.py  @Manzela
+/hermes_constants.py            @Manzela
+/agent/                         @Manzela
+/tools/                         @Manzela
+SECURITY.md                     @Manzela
