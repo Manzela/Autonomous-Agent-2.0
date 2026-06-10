@@ -82,7 +82,25 @@ class TestAtomicJsonWrite:
 
         tmp_files = [f for f in tmp_path.iterdir() if ".tmp" in f.name]
         assert len(tmp_files) == 0
+        # Original file preserved across the abort.
         assert json.loads(target.read_text(encoding="utf-8")) == original
+
+    def test_mode_write_survives_fchmod_failure(self, tmp_path):
+        # On network mounts (gcsfuse, some NFS/SMB) chmod/fchmod raise EPERM.
+        # A mode= write must still succeed (the file is written; mode is applied
+        # where the filesystem allows) rather than aborting the atomic write.
+        target = tmp_path / "secret.json"
+
+        def _raise(*_a, **_k):
+            raise OSError(1, "Operation not permitted")
+
+        with patch("utils.os.fchmod", side_effect=_raise), \
+                patch("utils.os.chmod", side_effect=_raise):
+            atomic_json_write(target, {"token": "abc"}, mode=0o600)
+
+        assert json.loads(target.read_text(encoding="utf-8")) == {"token": "abc"}
+        # And no temp file is orphaned by the tolerated failure.
+        assert not [f for f in tmp_path.iterdir() if ".tmp" in f.name]
 
     def test_accepts_string_path(self, tmp_path):
         target = str(tmp_path / "string_path.json")

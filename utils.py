@@ -121,7 +121,13 @@ def atomic_json_write(
             # fchmod is Unix-only; Windows' os module has no fchmod. Skipping it
             # here is safe — mkstemp already created the temp file as 0o600, and
             # the post-replace os.chmod below applies the final mode durably.
-            os.fchmod(fd, mode)
+            # Best-effort: on network mounts (gcsfuse, some NFS/SMB) chmod is
+            # unsupported and raises EPERM/ENOTSUP; a failure here must not abort
+            # the atomic write (mirrors the guarded post-replace os.chmod below).
+            try:
+                os.fchmod(fd, mode)
+            except OSError:
+                pass
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(
                 data,
