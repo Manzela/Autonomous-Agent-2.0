@@ -1,0 +1,86 @@
+# Cloud Build pipeline for the Hermes Agent gcsfuse/Cloud Run image.
+#
+# Gates BEFORE the image is published (images: pushes only if every step
+# succeeds): a unit-test step over the audit-touched suites, then a smoke step
+# mirroring upstream's hermes-smoke-test. Tags by immutable git SHA + :latest,
+# bakes the SHA so `hermes dump` is traceable, and warms the layer cache.
+#
+# Manual submit (no trigger → $COMMIT_SHA/$SHORT_SHA are empty), so the SHA is
+# passed explicitly via the _GIT_SHA substitution. Use deploy/submit.sh, or:
+#   gcloud builds submit \
+#     --project autonomous-agent-2026 \
+#     --config cloudbuild.yaml \
+#     --substitutions=_GIT_SHA="$(git rev-parse HEAD)"
+# Deploy the resulting :$_GIT_SHA tag to Cloud Run — never :latest.
+
+substitutions:
+  _IMAGE: us-central1-docker.pkg.dev/autonomous-agent-2026/hermes-repo/hermes-agent
+  _GIT_SHA: dev-local
+
+timeout: 3600s
+options:
+  machineType: E2_HIGHCPU_8
+  env:
+    - DOCKER_BUILDKIT=1
+
+steps:
+  # Warm the layer cache from the previous :latest (tolerate first-ever build).
+  - id: pull-cache
+    name: gcr.io/cloud-builders/docker
+    entrypoint: bash
+    args:
+      - -c
+      - docker pull "${_IMAGE}:latest" || echo "no cache image yet; cold build"
+
+  # Build, bake the SHA, tag immutable + latest.
+  - id: build
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - --build-arg
+      - HERMES_GIT_SHA=${_GIT_SHA}
+      - --cache-from
+      - ${_IMAGE}:latest
+      - -t
+      - ${_IMAGE}:${_GIT_SHA}
+      - -t
+      - ${_IMAGE}:latest
+      - .
+
+  # Unit-test gate: run the audit-touched suites against the BUILT image's
+  # runtime deps, with the workspace source mounted (tests/ is excluded from the
+  # image by .dockerignore). A failure here fails the build before any push.
+  - id: unit-tests
+    name: gcr.io/cloud-builders/docker
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        docker run --rm -v /workspace:/src -w /src --entrypoint sh \
+          "${_IMAGE}:${_GIT_SHA}" -c '
+            /opt/hermes/.venv/bin/pip install -q \
+              pytest==9.0.2 pytest-asyncio==1.3.0 pytest-timeout==2.4.0 &&
+            PYTHONPATH=/src /opt/hermes/.venv/bin/python -m pytest \
+              -p no:cacheprovider -q \
+              tests/tools/test_docker_config_migrate.py \
+              tests/hermes_cli/test_service_manager.py \
+              tests/test_hermes_constants.py \
+              tests/tools/test_stage2_hook_auth_json_bootstrap.py \
+              tests/tools/test_stage2_hook_gateway_bootstrap_state.py \
+              tests/gateway/test_status.py'
+
+  # Smoke gate: the CLI must start (mirrors .github/actions/hermes-smoke-test).
+  - id: smoke
+    name: gcr.io/cloud-builders/docker
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        docker run --rm --entrypoint /opt/hermes/.venv/bin/hermes \
+          "${_IMAGE}:${_GIT_SHA}" --help &&
+        docker run --rm --entrypoint /opt/hermes/.venv/bin/hermes \
+          "${_IMAGE}:${_GIT_SHA}" dashboard --help
+
+images:
+  - ${_IMAGE}:${_GIT_SHA}
+  - ${_IMAGE}:latest

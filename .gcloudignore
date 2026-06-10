@@ -1,0 +1,59 @@
+# gcloudignore for Hermes Agent Cloud Build uploads.
+#
+# Controls what `gcloud builds submit` UPLOADS as the build context. It does
+# NOT control what the Docker build bakes — that is .dockerignore's job, which
+# is honoured inside Cloud Build ONLY because this file no longer excludes it
+# (the previous version listed `.dockerignore`, so the in-cloud `docker build`
+# ran with no ignore file and produced an image that diverged from local
+# builds and shipped host __pycache__/tests).
+#
+# tests/ is intentionally NOT excluded here: it is needed in /workspace for the
+# cloudbuild unit-test step. It is still kept OUT of the image by .dockerignore.
+
+.git/
+.gitignore
+.gcloudignore
+
+# Dependencies
+node_modules/
+**/node_modules/
+.venv/
+**/.venv/
+venv/
+env/
+ENV/
+
+# Local Python build droppings (cut upload size; also excluded from the image)
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Local state and caches
+.hermes/
+.pytest_cache/
+.coverage
+htmlcov/
+logs/
+data/
+tmp/
+temp_vision_images/
+
+# Local IDE config
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Build artifacts regenerated inside the container
+ui-tui/dist/
+ui-tui/packages/hermes-ink/dist/
+hermes_cli/web_dist/
+hermes_cli/tui_dist/
+
+# Secrets — never upload. (.env.example is intentionally not excluded so the
+# first-boot seed contract stays buildable; real secrets match .env / .env.local.)
+.env
+.env.local
+.env.*.local
