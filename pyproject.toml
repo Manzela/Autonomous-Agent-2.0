@@ -99,6 +99,7 @@ dependencies = [
   # install rather than gating it behind an extra + a mid-session lazy install
   # (which deadlocked the CLI under prompt_toolkit — see #40490).
   "Pillow==12.2.0",
+  "psycopg[binary]==3.3.4",
 ]
 
 [project.optional-dependencies]
